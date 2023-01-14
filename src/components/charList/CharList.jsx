@@ -1,85 +1,69 @@
-import { Component } from 'react';
+import { useState, useEffect, useRef } from 'react';
+
 import PropTypes from 'prop-types';
-import MarvelService from '../../services/MarvelService';
+
+import useMarvelService from '../../services/MarvelService';
 import Spinner from '../spinner/Spinner';
 import ErrorMessage from '../errorMessage/ErrorMessage';
+
 import './charList.scss';
 
 
-class CharList extends Component {
-    state = {
-        charList: [],
-        loading: true,
-        error: false,
-        moreLoading: false,
-        offset: 200,
-        charEnded: false
-    }
+const CharList = (props) => {
 
-    marvelService = new MarvelService();
+    // состояние массива персонажей
+    const [charList, setCharList] = useState([]);
+    // состояние спиннера загрузки новых персонажей
+    const [moreLoading, setMoreLoading] = useState(false);
+    // состояние запроса, с какого места получаем данные о персонажах
+    const [offset, setOffset] = useState(200);
+    // состояние конца массива персонажей
+    const [charEnded, setCharEnded] = useState(false);
 
-    // выполняется после первичного рендеринга, там пока пустой массив charList
-    // после чего выполняем onRequest и запрашиваем данные с API, на основе них формируем новый массив newCharList
-    // далее меняем state в onCharListLoaded и выполняем shouldComponentUpdate
-    componentDidMount(){
-        this.onRequest();
-    }
+    const {loading, error, getAllChars} = useMarvelService();
 
-    
-    onRequest = (offset) => {
-        this.onCharListLoading();
-        this.marvelService.getAllChars(offset)
-            .then(this.onCharListLoaded)
-            .catch(this.onError)
-    }
 
-    // выполняется shouldComponentUpdate, так как меняем state
-    onCharListLoading = () => {
-        this.setState({
-            moreLoading: true
-        })
+    useEffect(() => {
+        // в кастом хуке принудительно задаем начальное состояние спиннера (setLoading(true)), поэтому необходимо внести корректировки
+        // для этого добавляем переменную, которая определяет, какая это загрузка (true - первичная)
+        onRequest(offset, true);
+        // eslint-disable-next-line
+    }, [])
+
+
+    const onRequest = (offset, initial) => {
+        // в случае, когда это первичная загрузка - включаем спиннер, если нет - не включаем
+        initial ? setMoreLoading(false) : setMoreLoading(true);
+        getAllChars(offset)
+            .then(onCharListLoaded)
     }
 
     // выполняется shouldComponentUpdate, так как меняем state
-    onCharListLoaded = (newCharList) => {
+    const onCharListLoaded = (newCharList) => {
 
         let ended = false;
         if (newCharList.length < 9){
             ended = true;
         }
-        this.setState(({offset, charList}) => (
-            {
-                charList: [...charList, ...newCharList], 
-                loading: false,
-                moreLoading: false,
-                offset: offset + 9,
-                charEnded: ended
-            }
-        ))
-    }
 
-    // выполняется shouldComponentUpdate, так как меняем state
-    onError = () => {
-        this.setState({
-            loading: false,
-            error: true
-        })
+        setCharList(charList => [...charList, ...newCharList]);
+        setMoreLoading(false);
+        setOffset(offset => offset + 9);
+        setCharEnded(ended)
+
     }
 
     // пустой массив значений для Ref карточек персонажей
-    charRefs = [];
-    // создаем все ссылки на карточки
-    setRef = (ref) => {
-        this.charRefs.push(ref);
-    }
-    // управляем css активной карточки, выделяем активную
-    setFocusOnChar = (id) => {
-        this.charRefs.forEach(item => item.classList.remove('char__item_selected'));
-        this.charRefs[id].classList.add('char__item_selected');
-        this.charRefs[id].focus();
-    }
+    const charRefs = useRef([]);
 
-    renderChars = (arr) => {
+    // управляем css активной карточки, выделяем активную
+    const setFocusOnChar = (id) => {
+        charRefs.current.forEach(item => item.classList.remove('char__item_selected'));
+        charRefs.current[id].classList.add('char__item_selected');
+        charRefs.current[id].focus();
+    }
+    // рендер карточек персонажей
+    const renderChars = (arr) => {
         const items = arr.map((item, index) => {
             let objectFitStyle = {'objectFit': 'cover'};
             if (item.thumbnail === 'http://i.annihil.us/u/prod/marvel/i/mg/b/40/image_not_available.jpg'){
@@ -88,18 +72,18 @@ class CharList extends Component {
             return (
                 <li 
                     className="char__item"
-                    ref={this.setRef}
+                    ref={el => charRefs.current[index] = el}
                     key={item.id}
                     tabIndex={0}
                     onClick={()=> {
-                        this.props.onCharSelected(item.id);
-                        this.setFocusOnChar(index);
+                        props.onCharSelected(item.id);
+                        setFocusOnChar(index);
                     }}
                     // управление с клавиатуры
                     onKeyDown={e => {
                         if (e.key === ' ' || e.key === "Enter") {
-                            this.props.onCharSelected(item.id);
-                            this.setFocusOnChar(index);
+                            props.onCharSelected(item.id);
+                            setFocusOnChar(index);
                         }
                     }}
                 >
@@ -108,6 +92,7 @@ class CharList extends Component {
                 </li>
             )
         });
+        // в рендер идет:
         return (
             <ul className="char__grid">
                 {items}
@@ -115,31 +100,36 @@ class CharList extends Component {
         )
     }
 
-    render(){
-        const { charList, loading, error, moreLoading, offset, charEnded } = this.state;
+    const items = renderChars(charList);
 
-        const items = this.renderChars(charList);
+    const errorMessage = error ? <ErrorMessage/> : null;
+    // меняем логику: крутим спиннер тогда когда есть загрузка, но это не загрузка новых персонажей
+    const spinner = loading && !moreLoading ? <Spinner/> : null;
+    
+    // const content = !(loading || error) ? items : null;
 
-        const errorMessage = error ? <ErrorMessage/> : null;
-        const spinner = loading ? <Spinner/> : null;
-        const content = !(loading || error) ? items : null;
+    // состояние charList и loading каждый раз меняются и перерендеривают интерфейс. В функциональных компонентах при изменении каждый раз content новый.
+    // В классовых компонентах переменная добавляла значение, поэтому content не прыгал
+    // Чтобы content не прыгал в ФК, необходимо убрать это условие (null вызывает изменение верстки и интефейс прыгает). 
+     
+    
+    return (
+        <div className="char__list">
+            {errorMessage}
+            {spinner}
+            {/* Просто рендерим пустой char__grid, если контент не загрузился */}
+            {items}
+            <button 
+                onClick={() => onRequest(offset)}
+                className="button button__main button__long"
+                disabled={moreLoading}
+                style={{'display': charEnded ? 'none' : 'block'}}
+            >
+                <div className="inner">load more</div>
+            </button>
+        </div>
+    )
 
-        return (
-            <div className="char__list">
-                {errorMessage}
-                {spinner}
-                {content}
-                <button 
-                    onClick={() => this.onRequest(offset)}
-                    className="button button__main button__long"
-                    disabled={moreLoading}
-                    style={{'display': charEnded ? 'none' : 'block'}}
-                >
-                        <div className="inner">load more</div>
-                </button>
-            </div>
-        )
-    }
     
 }
 
